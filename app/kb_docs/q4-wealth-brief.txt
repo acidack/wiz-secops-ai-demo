@@ -1,0 +1,11 @@
+CYMBAL PRIVATE BANK — Q4 2026 APAC WEALTH & TREASURY BRIEF
+Classification: Internal — Relationship Managers
+
+1. Commercial Lending & Treasury Growth
+- APAC Private Banking AUM grew 14.2% YoY to AUD 48.6B, led by Sydney, Melbourne, and Singapore institutional desks.
+- Corporate FX hedging volume rose 19% QoQ following launch of instant multi-currency treasury settlement.
+- Mobile banking MFA adoption reached 96.4% across commercial accounts; self-service MFA reset is available under Profile > Security > Multi-Factor Authentication.
+
+2. Wire Transfer Policy Highlights
+- Standard Relationship Manager approval tier: up to AUD 250,000 per transaction.
+- High-value treasury transfers above AUD 250,000 require dual-control approval and out-of-band callback verification.

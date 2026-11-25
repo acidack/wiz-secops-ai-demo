@@ -12,7 +12,9 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -171,11 +173,60 @@ def call_vertex_gemini(prompt: str) -> tuple[str, str]:
     raise RuntimeError(f"Vertex AI Gemini call failed: {last_err}")
 
 
+ARMOR_LOGS: deque = deque(maxlen=100)
+
+
+def record_armor_log(
+    *,
+    correlation_id: str,
+    user_id: str,
+    source_ip: str,
+    prompt_preview: str,
+    attachment_name: Optional[str],
+    model_armor_enabled: bool,
+    blocked: bool,
+    model: str,
+    latency_ms: int,
+    prompt_armor: dict,
+    response_armor: dict,
+) -> dict:
+    matched = sorted(
+        set(prompt_armor.get("matched_filters", []) + response_armor.get("matched_filters", []))
+    )
+    if not model_armor_enabled:
+        verdict = "BYPASSED"
+    elif blocked:
+        verdict = "BLOCKED"
+    else:
+        verdict = "ALLOWED"
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "correlation_id": correlation_id,
+        "user_id": user_id,
+        "source_ip": source_ip,
+        "prompt_preview": prompt_preview[:180],
+        "attachment_name": attachment_name,
+        "model_armor_enabled": model_armor_enabled,
+        "verdict": verdict,
+        "matched_filters": matched,
+        "model": model,
+        "latency_ms": latency_ms,
+        "prompt_match_state": prompt_armor.get("match_state", "UNKNOWN"),
+        "response_match_state": response_armor.get("match_state", "UNKNOWN"),
+        "prompt_armor": prompt_armor,
+        "response_armor": response_armor,
+    }
+    ARMOR_LOGS.appendleft(entry)
+    return entry
+
+
 class ChatRequest(BaseModel):
     message: str
     user_id: Optional[str] = "castor.troy@cymbalbank.example"
     enable_model_armor: Optional[bool] = True
     correlation_id: Optional[str] = None
+    attachment_name: Optional[str] = None
+    attachment_content: Optional[str] = None
 
 
 class PingRequest(BaseModel):
@@ -202,17 +253,47 @@ def healthz():
     }
 
 
+@app.get("/api/armor-logs")
+def get_armor_logs():
+    return {
+        "template": MODEL_ARMOR_TEMPLATE,
+        "model": GEMINI_MODEL,
+        "logs": list(ARMOR_LOGS),
+    }
+
+
+@app.delete("/api/armor-logs")
+def clear_armor_logs():
+    ARMOR_LOGS.clear()
+    return {"cleared": True}
+
+
 @app.post("/api/chat")
 def chat(req: ChatRequest, request: Request):
+    started = time.perf_counter()
     corr_id = req.correlation_id or f"demo-{uuid.uuid4().hex[:10]}"
     client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+
+    attachment_text = req.attachment_content
+    if req.attachment_name and not attachment_text:
+        candidate = (KB_DIR / Path(req.attachment_name).name).resolve()
+        if candidate.is_file() and candidate.parent == KB_DIR.resolve():
+            attachment_text = candidate.read_text(encoding="utf-8", errors="replace")[:4000]
+
+    effective_prompt = req.message
+    if req.attachment_name and attachment_text:
+        effective_prompt = (
+            f"{req.message}\n\n"
+            f"[Attached Workspace Document: {req.attachment_name}]\n"
+            f"{attachment_text}"
+        )
 
     prompt_armor = {"blocked": False, "match_state": "BYPASSED", "matched_filters": []}
     response_armor = {"blocked": False, "match_state": "BYPASSED", "matched_filters": []}
 
     if req.enable_model_armor:
         try:
-            prompt_armor = call_model_armor(req.message, mode="prompt", correlation_id=corr_id)
+            prompt_armor = call_model_armor(effective_prompt, mode="prompt", correlation_id=corr_id)
         except Exception as exc:
             logger.error(
                 "Model Armor prompt check error",
@@ -221,6 +302,7 @@ def chat(req: ChatRequest, request: Request):
             prompt_armor = {"blocked": False, "match_state": "ERROR", "matched_filters": [], "error": str(exc)}
 
         if prompt_armor["blocked"]:
+            latency_ms = int((time.perf_counter() - started) * 1000)
             logger.warning(
                 "Model Armor blocked malicious user prompt",
                 extra={
@@ -229,24 +311,45 @@ def chat(req: ChatRequest, request: Request):
                         "user_id": req.user_id,
                         "source_ip": client_ip,
                         "correlation_id": corr_id,
+                        "attachment_name": req.attachment_name,
                         "matched_filters": prompt_armor["matched_filters"],
                         "action": "BLOCK",
                     }
                 },
             )
+            record_armor_log(
+                correlation_id=corr_id,
+                user_id=req.user_id or "anonymous",
+                source_ip=client_ip,
+                prompt_preview=req.message,
+                attachment_name=req.attachment_name,
+                model_armor_enabled=True,
+                blocked=True,
+                model=GEMINI_MODEL,
+                latency_ms=latency_ms,
+                prompt_armor=prompt_armor,
+                response_armor=response_armor,
+            )
+            reply_msg = (
+                "I wasn't able to process that attachment — Google Cloud Model Armor detected and blocked a policy violation."
+                if req.attachment_name
+                else "Blocked by Google Cloud Model Armor: Prompt violated AI security policy."
+            )
             return JSONResponse(
                 {
                     "blocked": True,
                     "model": GEMINI_MODEL,
-                    "reply": "Blocked by Google Cloud Model Armor: Prompt violated AI security policy.",
+                    "reply": reply_msg,
                     "correlation_id": corr_id,
+                    "latency_ms": latency_ms,
+                    "attachment_name": req.attachment_name,
                     "prompt_armor": prompt_armor,
                     "response_armor": response_armor,
                 }
             )
 
     try:
-        reply, used_model = call_vertex_gemini(req.message)
+        reply, used_model = call_vertex_gemini(effective_prompt)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -258,6 +361,22 @@ def chat(req: ChatRequest, request: Request):
         except Exception as exc:
             response_armor = {"blocked": False, "match_state": "ERROR", "matched_filters": [], "error": str(exc)}
 
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    is_blocked = bool(response_armor.get("blocked"))
+    record_armor_log(
+        correlation_id=corr_id,
+        user_id=req.user_id or "anonymous",
+        source_ip=client_ip,
+        prompt_preview=req.message,
+        attachment_name=req.attachment_name,
+        model_armor_enabled=bool(req.enable_model_armor),
+        blocked=is_blocked,
+        model=used_model,
+        latency_ms=latency_ms,
+        prompt_armor=prompt_armor,
+        response_armor=response_armor,
+    )
+
     logger.info(
         "AI chat completed",
         extra={
@@ -266,6 +385,7 @@ def chat(req: ChatRequest, request: Request):
                 "user_id": req.user_id,
                 "source_ip": client_ip,
                 "correlation_id": corr_id,
+                "attachment_name": req.attachment_name,
                 "model": used_model,
                 "model_armor_enabled": req.enable_model_armor,
                 "prompt_match_state": prompt_armor["match_state"],
@@ -274,10 +394,12 @@ def chat(req: ChatRequest, request: Request):
         },
     )
     return {
-        "blocked": bool(response_armor.get("blocked")),
+        "blocked": is_blocked,
         "model": used_model,
         "reply": reply,
         "correlation_id": corr_id,
+        "latency_ms": latency_ms,
+        "attachment_name": req.attachment_name,
         "prompt_armor": prompt_armor,
         "response_armor": response_armor,
     }
