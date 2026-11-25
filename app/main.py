@@ -51,7 +51,8 @@ MODEL_ARMOR_TEMPLATE = os.getenv(
     "MODEL_ARMOR_TEMPLATE",
     f"projects/{GCP_PROJECT}/locations/{GCP_LOCATION}/templates/wiz_demo_model_armor",
 )
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_LOCATION = os.getenv("GEMINI_LOCATION", "global")
 
 BASE_DIR = Path(__file__).resolve().parent
 KB_DIR = BASE_DIR / "kb_docs"
@@ -126,14 +127,15 @@ def call_model_armor(text: str, mode: str = "prompt", correlation_id: str = "") 
 
 
 def call_vertex_gemini(prompt: str) -> str:
-    """Call Vertex AI Gemini in GCP_LOCATION using GKE Workload Identity / ADC."""
+    """Call Vertex AI Gemini using GKE Workload Identity / ADC."""
     token = get_gcp_access_token()
-    models_to_try = [GEMINI_MODEL, "gemini-2.0-flash", "gemini-2.0-flash-001"]
+    host = "aiplatform.googleapis.com" if GEMINI_LOCATION == "global" else f"{GEMINI_LOCATION}-aiplatform.googleapis.com"
+    models_to_try = [GEMINI_MODEL, "gemini-3-flash-preview", "gemini-2.5-flash"]
     last_err = ""
     for model_name in models_to_try:
         url = (
-            f"https://{GCP_LOCATION}-aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
-            f"/locations/{GCP_LOCATION}/publishers/google/models/{model_name}:generateContent"
+            f"https://{host}/v1/projects/{GCP_PROJECT}"
+            f"/locations/{GEMINI_LOCATION}/publishers/google/models/{model_name}:generateContent"
         )
         payload = {
             "contents": [
