@@ -51,7 +51,7 @@ MODEL_ARMOR_TEMPLATE = os.getenv(
     "MODEL_ARMOR_TEMPLATE",
     f"projects/{GCP_PROJECT}/locations/{GCP_LOCATION}/templates/wiz_demo_model_armor",
 )
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_LOCATION = os.getenv("GEMINI_LOCATION", "global")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -126,11 +126,11 @@ def call_model_armor(text: str, mode: str = "prompt", correlation_id: str = "") 
     }
 
 
-def call_vertex_gemini(prompt: str) -> str:
+def call_vertex_gemini(prompt: str) -> tuple[str, str]:
     """Call Vertex AI Gemini using GKE Workload Identity / ADC."""
     token = get_gcp_access_token()
     host = "aiplatform.googleapis.com" if GEMINI_LOCATION == "global" else f"{GEMINI_LOCATION}-aiplatform.googleapis.com"
-    models_to_try = [GEMINI_MODEL, "gemini-3-flash-preview", "gemini-2.5-flash"]
+    models_to_try = [GEMINI_MODEL, "gemini-3.5-flash", "gemini-3-flash-preview"]
     last_err = ""
     for model_name in models_to_try:
         url = (
@@ -152,7 +152,7 @@ def call_vertex_gemini(prompt: str) -> str:
                     ],
                 }
             ],
-            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
+            "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1024},
         }
         resp = requests.post(
             url,
@@ -165,7 +165,8 @@ def call_vertex_gemini(prompt: str) -> str:
             candidates = data.get("candidates", [])
             if candidates:
                 parts = candidates[0].get("content", {}).get("parts", [])
-                return "".join(p.get("text", "") for p in parts)
+                used_model = data.get("modelVersion", model_name)
+                return "".join(p.get("text", "") for p in parts), used_model
         last_err = f"{model_name} HTTP {resp.status_code}: {resp.text[:200]}"
     raise RuntimeError(f"Vertex AI Gemini call failed: {last_err}")
 
@@ -194,6 +195,8 @@ def healthz():
         "status": "ok",
         "project": GCP_PROJECT,
         "location": GCP_LOCATION,
+        "gemini_model": GEMINI_MODEL,
+        "gemini_location": GEMINI_LOCATION,
         "model_armor_template": MODEL_ARMOR_TEMPLATE,
         "pod": os.getenv("HOSTNAME", socket.gethostname()),
     }
@@ -234,6 +237,7 @@ def chat(req: ChatRequest, request: Request):
             return JSONResponse(
                 {
                     "blocked": True,
+                    "model": GEMINI_MODEL,
                     "reply": "Blocked by Google Cloud Model Armor: Prompt violated AI security policy.",
                     "correlation_id": corr_id,
                     "prompt_armor": prompt_armor,
@@ -242,7 +246,7 @@ def chat(req: ChatRequest, request: Request):
             )
 
     try:
-        reply = call_vertex_gemini(req.message)
+        reply, used_model = call_vertex_gemini(req.message)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -262,6 +266,7 @@ def chat(req: ChatRequest, request: Request):
                 "user_id": req.user_id,
                 "source_ip": client_ip,
                 "correlation_id": corr_id,
+                "model": used_model,
                 "model_armor_enabled": req.enable_model_armor,
                 "prompt_match_state": prompt_armor["match_state"],
                 "response_match_state": response_armor["match_state"],
@@ -270,6 +275,7 @@ def chat(req: ChatRequest, request: Request):
     )
     return {
         "blocked": bool(response_armor.get("blocked")),
+        "model": used_model,
         "reply": reply,
         "correlation_id": corr_id,
         "prompt_armor": prompt_armor,
