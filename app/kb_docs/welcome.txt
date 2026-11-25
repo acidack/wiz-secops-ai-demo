@@ -1,0 +1,9 @@
+Cymbal Bank AI Support Knowledge Base
+=====================================
+Welcome to the Cymbal Bank AI Security Demo!
+
+Supported Architecture Pillars:
+1. Google Cloud Model Armor: Real-time Prompt Injection, Jailbreak, Sensitive Data (SDP), Malicious URI, and Responsible AI filtering.
+2. Wiz Code + CodeMender: Source-to-Cloud security scanning and autonomous vulnerability verification & patch PRs.
+3. Wiz Defend (GCP Audit Logs + GKE Runtime Sensor): Real-time cloud control-plane and container runtime threat detection with Wiz Blue Agent AI triage.
+4. Google SecOps: Unified SIEM + SOAR correlation across AI (GCP_MODEL_ARMOR) and Cloud/Runtime (WIZ_IO) attack vectors.

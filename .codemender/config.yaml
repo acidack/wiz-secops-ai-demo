@@ -1,0 +1,29 @@
+# .codemender/config.yaml - CI/CD Headless Execution Profile (CodeMender v0.22.0+)
+server: {}
+
+scan:
+  extensions:
+    include: [".py", ".java", ".go", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inl", ".ipp", ".cs", ".rs", ".kt", ".kts", ".rb", ".php", ".sol", ".tf", ".hcl"]
+    exclude: [".min.js", ".generated.go", ".pb.go"]
+  exclude_dirs: ["node_modules", "vendor", "dist", "/target", "/obj", "/build", ".gradle"]
+  max_file_size_kb: 2048
+  incremental: true
+
+output:
+  format: table   # "table", "json", "sarif", "csv"
+  plain: false    # Set true (or CM_PLAIN=true) for pure-ASCII CI logs without emojis or ANSI colors
+
+tools:
+  confirm_commands: false   # Disables interactive confirmation prompts in headless CI runners
+  confirm_writes: false     # Disables interactive confirmation prompts in headless CI runners
+
+execution:
+  interactive_mode: false   # Headless CI/CD environment (no interactive terminal)
+  duration: "25m"           # Max wall-clock duration per command (overridden by --duration or CM_DURATION)
+  stall_detection: false    # Set true (or CM_STALL_DETECTION=on) to stop stalled tool loops
+
+vcs:
+  type: "git"
+
+build:
+  command: "cd \"$(git rev-parse --show-toplevel)\" && python3 -m pip install -q -r requirements.txt pytest httpx && python3 -m pytest -q" # Post-patch regression testing gate executed by cm fix

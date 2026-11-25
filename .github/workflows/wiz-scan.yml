@@ -1,0 +1,67 @@
+name: Wiz Code Security Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  wiz-code-scan:
+    name: Wiz CLI IaC, SCA & Secrets Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Wiz CLI
+        run: |
+          curl -fsSL -o wizcli https://downloads.wiz.io/wizcli/latest/wizcli-linux-amd64
+          chmod +x wizcli
+          ./wizcli version
+
+      - name: Authenticate Wiz CLI
+        env:
+          WIZ_CLIENT_ID: ${{ secrets.WIZ_CLIENT_ID }}
+          WIZ_CLIENT_SECRET: ${{ secrets.WIZ_CLIENT_SECRET }}
+        run: |
+          ./wizcli auth --id "$WIZ_CLIENT_ID" --secret "$WIZ_CLIENT_SECRET"
+
+      - name: Run Wiz Directory & IaC Scan
+        id: wiz_scan
+        continue-on-error: true
+        run: |
+          ./wizcli dir scan \
+            --path . \
+            --name "acidack/wiz-secops-ai-demo" \
+            --format sarif \
+            --output wiz-results.sarif
+
+      - name: Run Wiz IaC Scan (Kubernetes & Dockerfile)
+        continue-on-error: true
+        run: |
+          ./wizcli iac scan \
+            --path . \
+            --name "acidack/wiz-secops-ai-demo-iac" \
+            --format sarif \
+            --output wiz-iac.sarif
+
+      - name: Upload Wiz Directory SARIF to GitHub Code Scanning
+        if: always() && hashFiles('wiz-results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: wiz-results.sarif
+          category: wiz-dir-scan
+
+      - name: Upload Wiz IaC SARIF to GitHub Code Scanning
+        if: always() && hashFiles('wiz-iac.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: wiz-iac.sarif
+          category: wiz-iac-scan

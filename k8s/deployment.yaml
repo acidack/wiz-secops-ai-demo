@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wiz-ai-demo
+  labels:
+    owner: sumitpatel
+    app: wiz-ai-chat
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wiz-ai-chat-ksa
+  namespace: wiz-ai-demo
+  annotations:
+    iam.gke.io/gcp-service-account: wiz-ai-chat-sa@sumitpatel-wiz-ai-demo.iam.gserviceaccount.com
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wiz-ai-chat
+  namespace: wiz-ai-demo
+  labels:
+    app: wiz-ai-chat
+    tier: ai-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wiz-ai-chat
+  template:
+    metadata:
+      labels:
+        app: wiz-ai-chat
+        tier: ai-frontend
+    spec:
+      serviceAccountName: wiz-ai-chat-ksa
+      containers:
+        - name: wiz-ai-chat
+          image: us-central1-docker.pkg.dev/sumitpatel-wiz-ai-demo/docker-images/wiz-ai-chat:v1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GCP_PROJECT
+              value: "sumitpatel-wiz-ai-demo"
+            - name: GCP_LOCATION
+              value: "us-central1"
+            - name: MODEL_ARMOR_TEMPLATE
+              value: "projects/sumitpatel-wiz-ai-demo/locations/us-central1/templates/wiz_demo_model_armor"
+            - name: GEMINI_MODEL
+              value: "gemini-2.5-flash"
+          # Deliberate K8s IaC demo posture findings for Wiz Code & Wiz Cloud Security Graph:
+          # runs as root, allows privilege escalation, writable root filesystem
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wiz-ai-chat-svc
+  namespace: wiz-ai-demo
+  labels:
+    app: wiz-ai-chat
+spec:
+  type: LoadBalancer
+  selector:
+    app: wiz-ai-chat
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
