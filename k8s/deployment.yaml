@@ -36,7 +36,7 @@ spec:
       serviceAccountName: wiz-ai-chat-ksa
       containers:
         - name: wiz-ai-chat
-          image: us-central1-docker.pkg.dev/sumitpatel-wiz-ai-demo/docker-images/wiz-ai-chat:v4
+          image: us-central1-docker.pkg.dev/sumitpatel-wiz-ai-demo/docker-images/wiz-ai-chat:v5
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
