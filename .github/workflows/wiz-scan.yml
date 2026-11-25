@@ -33,15 +33,14 @@ jobs:
         run: |
           ./wizcli auth --id "$WIZ_CLIENT_ID" --secret "$WIZ_CLIENT_SECRET"
 
-      - name: Run Wiz Directory & IaC Scan
+      - name: Run Wiz Directory & SCA Scan
         id: wiz_scan
         continue-on-error: true
         run: |
           ./wizcli dir scan \
             --path . \
             --name "acidack/wiz-secops-ai-demo" \
-            --format sarif \
-            --output wiz-results.sarif
+            --output wiz-results.sarif,sarif
 
       - name: Run Wiz IaC Scan (Kubernetes & Dockerfile)
         continue-on-error: true
@@ -49,19 +48,18 @@ jobs:
           ./wizcli iac scan \
             --path . \
             --name "acidack/wiz-secops-ai-demo-iac" \
-            --format sarif \
-            --output wiz-iac.sarif
+            --output wiz-iac.sarif,sarif
 
       - name: Upload Wiz Directory SARIF to GitHub Code Scanning
         if: always() && hashFiles('wiz-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: wiz-results.sarif
           category: wiz-dir-scan
 
       - name: Upload Wiz IaC SARIF to GitHub Code Scanning
         if: always() && hashFiles('wiz-iac.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: wiz-iac.sarif
           category: wiz-iac-scan
