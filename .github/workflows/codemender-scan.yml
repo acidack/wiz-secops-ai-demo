@@ -1,8 +1,9 @@
 name: CodeMender Security Scan & SARIF Export
 
 on:
-  push:
-    branches: [ main, master ]
+  # Re-enable push trigger once GCP project 311287422761 is allowlisted for CodeMender Preview (Batch 32)
+  # push:
+  #   branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
   schedule:
